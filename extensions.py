@@ -8,13 +8,9 @@ Extensions are created here and bound to the app inside the factory.
 import logging
 
 from flask_jwt_extended import JWTManager
-from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 
 logger = logging.getLogger(__name__)
-
-# ── SQL Alchemy (MS SQL Server / SQLite) ────────────────────────
-db = SQLAlchemy()
 
 # ── JWT Authentication ──────────────────────────────────────────
 jwt = JWTManager()
@@ -49,7 +45,7 @@ def init_mongo(app):
         # Force a connection test
         client.admin.command("ping")
         mongo_client = client
-        db_name = uri.rsplit("/", 1)[-1].split("?")[0] or "nexus_ai_auth"
+        db_name = uri.rsplit("/", 1)[-1].split("?")[0] or "nexus_ai"
         mongo_db = client[db_name]
         logger.info("Connected to MongoDB: %s", db_name)
     except Exception as exc:
@@ -74,11 +70,76 @@ class _FallbackCollection:
                 return dict(doc)
         return None
 
+    def find(self, query: dict = None):
+        query = query or {}
+        results = []
+        for doc in self._docs:
+            if all(doc.get(k) == v for k, v in query.items()):
+                results.append(dict(doc))
+        return _FallbackCursor(results)
+
     def insert_one(self, doc: dict):
         self._counter += 1
         doc["_id"] = str(self._counter)
         self._docs.append(dict(doc))
         return type("Result", (), {"inserted_id": doc["_id"]})()
+
+    def update_many(self, query: dict, update: dict):
+        count = 0
+        set_fields = update.get("$set", {})
+        for doc in self._docs:
+            if all(doc.get(k) == v for k, v in query.items()):
+                doc.update(set_fields)
+                count += 1
+        return type("Result", (), {"modified_count": count})()
+
+    def count_documents(self, query: dict = None):
+        query = query or {}
+        return len([d for d in self._docs if all(d.get(k) == v for k, v in query.items())])
+
+    def aggregate(self, pipeline: list):
+        """Very basic aggregation support for $match + $group."""
+        docs = list(self._docs)
+        for stage in pipeline:
+            if "$match" in stage:
+                q = stage["$match"]
+                docs = [d for d in docs if all(d.get(k) == v for k, v in q.items())]
+            elif "$group" in stage:
+                group = stage["$group"]
+                result = {}
+                for key, expr in group.items():
+                    if key == "_id":
+                        result["_id"] = None
+                    elif isinstance(expr, dict) and "$sum" in expr:
+                        field = expr["$sum"]
+                        if field == 1:
+                            result[key] = len(docs)
+                        else:
+                            result[key] = sum(d.get(field.lstrip("$"), 0) for d in docs)
+                return [result] if docs else []
+        return docs
+
+
+class _FallbackCursor:
+    """Minimal cursor that mimics PyMongo cursor methods."""
+
+    def __init__(self, docs):
+        self._docs = docs
+
+    def sort(self, key, direction=-1):
+        self._docs.sort(key=lambda d: d.get(key, ""), reverse=(direction == -1))
+        return self
+
+    def skip(self, n):
+        self._docs = self._docs[n:]
+        return self
+
+    def limit(self, n):
+        self._docs = self._docs[:n]
+        return self
+
+    def __iter__(self):
+        return iter(self._docs)
 
 
 class _FallbackMongoDB:

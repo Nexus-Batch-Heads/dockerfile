@@ -2,14 +2,13 @@
 Nexus AI – Upload Routes
 =========================
 Handles standalone file uploads (outside of the chat flow).
-Validates, saves, and records metadata in MS SQL Server.
+Validates, saves, and records metadata in MongoDB Atlas.
 """
 
 from flask import Blueprint, current_app, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
-from extensions import db
-from models.file_model import File
+from models.file_model import insert_file, get_user_files
 from services.file_service import save_file
 from utils.helpers import error_response, success_response
 
@@ -36,17 +35,15 @@ def upload_file():
         return error_response(str(exc), 400)
 
     # Persist metadata
-    file_record = File(
+    file_record = insert_file(
         user_id=user_id,
         file_name=meta["file_name"],
         file_path=meta["file_path"],
         file_type=meta["file_type"],
     )
-    db.session.add(file_record)
-    db.session.commit()
 
     return success_response(
-        data=file_record.to_dict(),
+        data=file_record,
         message="File uploaded successfully.",
         status_code=201,
     )
@@ -58,13 +55,5 @@ def upload_file():
 def list_files():
     """Return all files uploaded by the authenticated user."""
     user_id = get_jwt_identity()
-
-    files = (
-        File.query.filter_by(user_id=user_id)
-        .order_by(File.uploaded_at.desc())
-        .all()
-    )
-
-    return success_response(
-        data=[f.to_dict() for f in files],
-    )
+    files = get_user_files(user_id)
+    return success_response(data=files)

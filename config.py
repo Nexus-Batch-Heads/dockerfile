@@ -25,15 +25,8 @@ class BaseConfig:
     )
     JWT_TOKEN_LOCATION = ["headers"]
 
-    # ── MongoDB Atlas (Authentication) ──────────────────────────
-    MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/nexus_ai_auth")
-
-    # ── SQL Database (MS SQL Server / SQLite fallback) ──────────
-    SQLALCHEMY_DATABASE_URI = os.getenv("MSSQL_URI", "sqlite:///nexus_ai.db")
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_pre_ping": True,
-    }
+    # ── MongoDB Atlas ───────────────────────────────────────────
+    MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/nexus_ai")
 
     # ── AI Service Keys ─────────────────────────────────────────
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
@@ -63,7 +56,6 @@ class TestingConfig(BaseConfig):
     """Testing-specific overrides."""
     DEBUG = False
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = "sqlite:///test.db"
     MONGO_URI = "mongodb://localhost:27017/nexus_ai_test"
 
 

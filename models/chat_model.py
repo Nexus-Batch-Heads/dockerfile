@@ -1,38 +1,63 @@
 """
-Nexus AI – Chat Model (MS SQL Server)
+Nexus AI – Chat Model (MongoDB Atlas)
 ======================================
-SQLAlchemy model for the 'chats' table storing every
+Helper functions for the 'chats' collection storing every
 user ↔ AI conversation turn.
 """
 
 from datetime import datetime, timezone
 
-from extensions import db
+from extensions import mongo_db
 
 
-class Chat(db.Model):
-    """Represents a single chat turn (user message + AI response)."""
+def _collection():
+    return mongo_db["chats"]
 
-    __tablename__ = "chats"
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    user_id = db.Column(db.String(64), nullable=False, index=True)
-    message = db.Column(db.Text, nullable=False)
-    response = db.Column(db.Text, nullable=True)
-    file_url = db.Column(db.String(512), nullable=True)
-    timestamp = db.Column(
-        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+def insert_chat(user_id: str, message: str, response: str = None, file_url: str = None) -> dict:
+    """Insert a chat document and return it as a dict."""
+    doc = {
+        "user_id": user_id,
+        "message": message,
+        "response": response,
+        "file_url": file_url,
+        "timestamp": datetime.now(timezone.utc),
+    }
+    result = _collection().insert_one(doc)
+    doc["_id"] = str(result.inserted_id)
+    return _to_dict(doc)
+
+
+def get_chats_paginated(user_id: str, page: int = 1, per_page: int = 20) -> dict:
+    """Return paginated chat history for a user (newest first)."""
+    col = _collection()
+    total = col.count_documents({"user_id": user_id})
+    skip = (page - 1) * per_page
+
+    cursor = (
+        col.find({"user_id": user_id})
+        .sort("timestamp", -1)
+        .skip(skip)
+        .limit(per_page)
     )
+    chats = [_to_dict(doc) for doc in cursor]
+    pages = max(1, -(-total // per_page))  # ceil division
 
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "user_id": self.user_id,
-            "message": self.message,
-            "response": self.response,
-            "file_url": self.file_url,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-        }
+    return {
+        "chats": chats,
+        "total": total,
+        "page": page,
+        "pages": pages,
+    }
 
-    def __repr__(self):
-        return f"<Chat id={self.id} user_id={self.user_id}>"
+
+def _to_dict(doc: dict) -> dict:
+    """Convert a MongoDB document to a serialisable dict."""
+    return {
+        "id": str(doc.get("_id", "")),
+        "user_id": doc.get("user_id"),
+        "message": doc.get("message"),
+        "response": doc.get("response"),
+        "file_url": doc.get("file_url"),
+        "timestamp": doc["timestamp"].isoformat() if doc.get("timestamp") else None,
+    }

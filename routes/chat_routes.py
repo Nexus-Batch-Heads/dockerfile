@@ -3,7 +3,7 @@ Nexus AI – Chat Routes
 =======================
 Handles chat interactions: accepts a user message (with optional
 file attachment), queries the AI service, persists the conversation
-in MS SQL Server, and returns the response.
+in MongoDB Atlas, and returns the response.
 """
 
 import logging
@@ -11,9 +11,8 @@ import logging
 from flask import Blueprint, current_app, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
-from extensions import db
-from models.chat_model import Chat
-from models.usage_model import Usage
+from models.chat_model import insert_chat, get_chats_paginated
+from models.usage_model import insert_usage
 from services.ai_service import AIService
 from services.file_service import save_file
 from utils.helpers import error_response, success_response
@@ -58,7 +57,7 @@ def send_message():
         try:
             meta = save_file(uploaded, current_app.config["UPLOAD_FOLDER"])
             file_path = meta["file_path"]
-            file_url = meta["file_path"]  # can be mapped to a public URL later
+            file_url = meta["file_path"]
         except ValueError as exc:
             return error_response(str(exc), 400)
 
@@ -73,28 +72,25 @@ def send_message():
     usage_data = result["usage"]
 
     # ── Persist chat turn ───────────────────────────────────────
-    chat = Chat(
+    chat = insert_chat(
         user_id=user_id,
         message=message,
         response=ai_response,
         file_url=file_url,
     )
-    db.session.add(chat)
 
     # ── Persist token usage ─────────────────────────────────────
-    usage = Usage(
+    usage = insert_usage(
         user_id=user_id,
         prompt_tokens=usage_data.get("prompt_tokens", 0),
         completion_tokens=usage_data.get("completion_tokens", 0),
         total_tokens=usage_data.get("total_tokens", 0),
     )
-    db.session.add(usage)
-    db.session.commit()
 
     return success_response(
         data={
-            "chat": chat.to_dict(),
-            "usage": usage.to_dict(),
+            "chat": chat,
+            "usage": usage,
         },
         message="Message sent successfully.",
     )
@@ -109,17 +105,6 @@ def chat_history():
     page = request.args.get("page", 1, type=int)
     per_page = min(request.args.get("per_page", 20, type=int), 100)
 
-    pagination = (
-        Chat.query.filter_by(user_id=user_id)
-        .order_by(Chat.timestamp.desc())
-        .paginate(page=page, per_page=per_page, error_out=False)
-    )
+    result = get_chats_paginated(user_id, page=page, per_page=per_page)
 
-    return success_response(
-        data={
-            "chats": [c.to_dict() for c in pagination.items],
-            "total": pagination.total,
-            "page": pagination.page,
-            "pages": pagination.pages,
-        }
-    )
+    return success_response(data=result)

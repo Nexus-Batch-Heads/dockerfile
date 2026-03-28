@@ -4,7 +4,7 @@ Nexus AI – Avatar Service (Production)
 Generates real, usable avatar images from uploaded face photos.
 Uses Pillow for image processing: face cropping, circular mask,
 neon glow border, gradient background, and stylized overlays.
-Stores avatar records in MSSQL via SQLAlchemy.
+Stores avatar records in MongoDB Atlas.
 """
 
 import json
@@ -134,35 +134,27 @@ class AvatarService:
             "skin_tone": skin_tone,
         }
 
-    # ── Save to MSSQL ────────────────────────────────────────────
+    # ── Save to MongoDB ──────────────────────────────────────────
 
     def save_to_db(self, user_id, avatar_data):
-        """Persist the avatar record in MSSQL."""
-        from extensions import db
-        from models.digital_twin_model import Avatar
+        """Persist the avatar record in MongoDB Atlas."""
+        from models.digital_twin_model import insert_avatar
 
-        # Deactivate any existing avatars
-        Avatar.query.filter_by(user_id=user_id, is_active=True).update({"is_active": False})
-
-        avatar = Avatar(
+        record = insert_avatar(
             user_id=user_id,
             avatar_url=avatar_data["avatar_url"],
             face_image_url=avatar_data.get("face_image_url"),
             facial_features=json.dumps(avatar_data.get("facial_features", {})),
             expression=avatar_data.get("expression", "neutral"),
             skin_tone=avatar_data.get("skin_tone", "#e0b48c"),
-            is_active=True,
         )
-        db.session.add(avatar)
-        db.session.commit()
-        logger.info("Avatar saved to MSSQL for user %s (id=%s)", user_id, avatar.id)
-        return avatar.to_dict()
+        logger.info("Avatar saved to MongoDB for user %s (id=%s)", user_id, record.get("id"))
+        return record
 
     def get_active_avatar(self, user_id):
-        """Get the user's active avatar from MSSQL."""
-        from models.digital_twin_model import Avatar
-        avatar = Avatar.query.filter_by(user_id=user_id, is_active=True).first()
-        return avatar.to_dict() if avatar else None
+        """Get the user's active avatar from MongoDB."""
+        from models.digital_twin_model import get_active_avatar
+        return get_active_avatar(user_id)
 
     # ── Expression Morph Targets ─────────────────────────────────
 

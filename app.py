@@ -15,7 +15,7 @@ import os
 from flask import Flask, jsonify
 
 from config import get_config
-from extensions import cors, db, init_mongo, jwt
+from extensions import cors, init_mongo, jwt
 
 
 def create_app(config_class=None):
@@ -40,21 +40,9 @@ def create_app(config_class=None):
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     # ── Initialise extensions ───────────────────────────────────
-    db.init_app(app)
     jwt.init_app(app)
     cors.init_app(app, origins=app.config["CORS_ORIGINS"])
     init_mongo(app)
-
-    # ── Create SQL tables ───────────────────────────────────────
-    with app.app_context():
-        # Import models so SQLAlchemy registers them
-        from models.chat_model import Chat  # noqa: F401
-        from models.file_model import File  # noqa: F401
-        from models.usage_model import Usage  # noqa: F401
-        from models.digital_twin_model import Avatar, VoiceProfile  # noqa: F401
-
-        db.create_all()
-        logger.info("Database tables verified / created.")
 
     # ── Register blueprints ─────────────────────────────────────
     from routes.auth_routes import auth_bp
@@ -134,7 +122,7 @@ def create_app(config_class=None):
     logger.info("=" * 50)
     logger.info("  Nexus AI backend initialised successfully")
     logger.info("  Environment: %s", os.getenv("FLASK_ENV", "development"))
-    logger.info("  Database: %s", app.config["SQLALCHEMY_DATABASE_URI"])
+    logger.info("  MongoDB: %s", "configured" if app.config["MONGO_URI"] else "NOT SET")
     logger.info("  Groq API: %s", "configured" if app.config["GROQ_API_KEY"] else "NOT SET")
     logger.info("  OpenAI API: %s", "configured" if app.config["OPENAI_API_KEY"] else "NOT SET")
     logger.info("=" * 50)

@@ -1,38 +1,75 @@
 """
-Nexus AI – Usage Model (MS SQL Server)
+Nexus AI – Usage Model (MongoDB Atlas)
 =======================================
-SQLAlchemy model for the 'usage' table tracking AI token
+Helper functions for the 'usage' collection tracking AI token
 consumption per user.
 """
 
 from datetime import datetime, timezone
 
-from extensions import db
+from extensions import mongo_db
 
 
-class Usage(db.Model):
-    """Tracks token consumption for a single AI interaction."""
+def _collection():
+    return mongo_db["usage"]
 
-    __tablename__ = "usage"
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    user_id = db.Column(db.String(64), nullable=False, index=True)
-    prompt_tokens = db.Column(db.Integer, default=0, nullable=False)
-    completion_tokens = db.Column(db.Integer, default=0, nullable=False)
-    total_tokens = db.Column(db.Integer, default=0, nullable=False)
-    timestamp = db.Column(
-        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
+def insert_usage(
+    user_id: str,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    total_tokens: int = 0,
+) -> dict:
+    """Insert a usage document and return it as a dict."""
+    doc = {
+        "user_id": user_id,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "timestamp": datetime.now(timezone.utc),
+    }
+    result = _collection().insert_one(doc)
+    doc["_id"] = str(result.inserted_id)
+    return _to_dict(doc)
 
-    def to_dict(self) -> dict:
+
+def get_usage_stats(user_id: str) -> dict:
+    """Return aggregated token usage for a user (replaces SQL SUM/COUNT)."""
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {
+            "$group": {
+                "_id": None,
+                "prompt_tokens": {"$sum": "$prompt_tokens"},
+                "completion_tokens": {"$sum": "$completion_tokens"},
+                "total_tokens": {"$sum": "$total_tokens"},
+                "total_requests": {"$sum": 1},
+            }
+        },
+    ]
+    results = list(_collection().aggregate(pipeline))
+    if results:
+        r = results[0]
         return {
-            "id": self.id,
-            "user_id": self.user_id,
-            "prompt_tokens": self.prompt_tokens,
-            "completion_tokens": self.completion_tokens,
-            "total_tokens": self.total_tokens,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "prompt_tokens": r["prompt_tokens"],
+            "completion_tokens": r["completion_tokens"],
+            "total_tokens": r["total_tokens"],
+            "total_requests": r["total_requests"],
         }
+    return {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "total_requests": 0,
+    }
 
-    def __repr__(self):
-        return f"<Usage id={self.id} user={self.user_id} tokens={self.total_tokens}>"
+
+def _to_dict(doc: dict) -> dict:
+    return {
+        "id": str(doc.get("_id", "")),
+        "user_id": doc.get("user_id"),
+        "prompt_tokens": doc.get("prompt_tokens", 0),
+        "completion_tokens": doc.get("completion_tokens", 0),
+        "total_tokens": doc.get("total_tokens", 0),
+        "timestamp": doc["timestamp"].isoformat() if doc.get("timestamp") else None,
+    }

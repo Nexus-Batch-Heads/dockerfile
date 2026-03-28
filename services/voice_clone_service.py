@@ -3,7 +3,7 @@ Nexus AI – Voice Clone Service (Production)
 =============================================
 Clones the user's voice by analysing uploaded audio and generating
 speech using Microsoft's neural TTS engine (edge-tts).
-Stores voice profile records in MSSQL via SQLAlchemy.
+Stores voice profile records in MongoDB Atlas.
 """
 
 import asyncio
@@ -38,7 +38,7 @@ SAMPLE_TEXT = (
 
 
 class VoiceCloneService:
-    """Manages voice cloning, TTS generation, and MSSQL storage."""
+    """Manages voice cloning, TTS generation, and MongoDB storage."""
 
     # ── Voice Analysis ───────────────────────────────────────────
 
@@ -98,7 +98,7 @@ class VoiceCloneService:
           2. Analyse voice characteristics
           3. Select matching neural voice
           4. Generate cloned speech sample via edge-tts
-          5. Return all data for MSSQL storage
+          5. Return all data for MongoDB storage
           
         Returns:
           dict with original_audio_url, cloned_audio_url, characteristics, voice_name
@@ -169,35 +169,27 @@ class VoiceCloneService:
             logger.error("Synthesis failed: %s", exc)
             return None
 
-    # ── MSSQL Storage ────────────────────────────────────────────
+    # ── MongoDB Storage ──────────────────────────────────────────
 
     def save_to_db(self, user_id, clone_data):
-        """Persist voice profile in MSSQL."""
-        from extensions import db
-        from models.digital_twin_model import VoiceProfile
+        """Persist voice profile in MongoDB Atlas."""
+        from models.digital_twin_model import insert_voice_profile
 
-        # Deactivate existing profiles
-        VoiceProfile.query.filter_by(user_id=user_id, is_active=True).update({"is_active": False})
-
-        vp = VoiceProfile(
+        record = insert_voice_profile(
             user_id=user_id,
             original_audio_url=clone_data.get("original_audio_url"),
             cloned_audio_url=clone_data.get("cloned_audio_url"),
             voice_characteristics=json.dumps(clone_data.get("voice_characteristics", {})),
             voice_model_config=json.dumps({"sample_text": SAMPLE_TEXT}),
             edge_tts_voice=clone_data.get("edge_tts_voice"),
-            is_active=True,
         )
-        db.session.add(vp)
-        db.session.commit()
-        logger.info("Voice profile saved to MSSQL for user %s (id=%s)", user_id, vp.id)
-        return vp.to_dict()
+        logger.info("Voice profile saved to MongoDB for user %s (id=%s)", user_id, record.get("id"))
+        return record
 
     def get_active_profile(self, user_id):
-        """Get the user's active voice profile from MSSQL."""
-        from models.digital_twin_model import VoiceProfile
-        vp = VoiceProfile.query.filter_by(user_id=user_id, is_active=True).first()
-        return vp.to_dict() if vp else None
+        """Get the user's active voice profile from MongoDB."""
+        from models.digital_twin_model import get_active_voice_profile
+        return get_active_voice_profile(user_id)
 
     # ── Edge-TTS Engine ──────────────────────────────────────────
 
